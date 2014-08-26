@@ -58,8 +58,8 @@ function! jabug#start(options, class, arguments)
     only
 
     call jabug.__buffers.command.open('[command pane]', {'opener': 'botright new'})
-    resize 1
-    nnoremap <buffer><silent> <CR> :<C-U>call jabug#handle_command()
+    resize 5
+    nnoremap <buffer><silent> <CR> :<C-U>silent<Space>call<Space>jabug#handle_command()<CR>
 
     call jabug.__buffers.info.open('[info pane]', {'opener': 'botright vnew'})
 
