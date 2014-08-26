@@ -56,12 +56,15 @@ function! jabug#start(options, class, arguments)
 
     call jabug.__buffers.source.open('[source pane]', {'opener': 'new'})
     only
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-source
 
     call jabug.__buffers.command.open('[command pane]', {'opener': 'botright new'})
     resize 5
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-command
     nnoremap <buffer><silent> <CR> :<C-U>silent<Space>call<Space>jabug#handle_command()<CR>
 
     call jabug.__buffers.info.open('[info pane]', {'opener': 'botright vnew'})
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-info
 
     call jabug.__buffers.command.move()
 
