@@ -25,11 +25,32 @@ set cpo&vim
 let s:V= vital#of('jabug')
 let s:PM= s:V.import('ProcessManager')
 let s:BM= s:V.import('Vim.BufferManager')
+let s:Pub= s:V.import('Event.Publisher')
 unlet s:V
 
 let s:active_jabugs= []
+let s:publisher= s:Pub.new()
 
 let s:jabug= {}
+
+let s:buffer_initializer= {}
+
+function! s:buffer_initializer.open_source_pane()
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-source
+endfunction
+
+function! s:buffer_initializer.open_command_pane()
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted filetype=jabug-command
+    nnoremap <buffer><silent> <CR> :<C-U>silent<Space>call<Space>jabug#handle_command()<CR>
+endfunction
+
+function! s:buffer_initializer.open_info_pane()
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-info
+endfunction
+
+call s:publisher.subscribe('open_source_pane',  s:buffer_initializer)
+call s:publisher.subscribe('open_command_pane', s:buffer_initializer)
+call s:publisher.subscribe('open_info_pane',    s:buffer_initializer)
 
 function! jabug#start(options, class, arguments)
     let cmd= ['jdb']
@@ -42,6 +63,7 @@ function! jabug#start(options, class, arguments)
 
     let jabug.__process= s:PM.of(s:unique_id(), join(cmd, ' '))
     let jabug.__endpatterns= ['\s*>\s*']
+    let jabug.__publisher= s:publisher
 
     if jabug.__process.is_new()
         call jabug.__process.reserve_wait(jabug.__endpatterns)
@@ -56,15 +78,18 @@ function! jabug#start(options, class, arguments)
 
     call jabug.__buffers.source.open('[source pane]', {'opener': 'new'})
     only
-    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-source
 
     call jabug.__buffers.command.open('[command pane]', {'opener': 'botright new'})
     resize 5
-    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-command
-    nnoremap <buffer><silent> <CR> :<C-U>silent<Space>call<Space>jabug#handle_command()<CR>
 
     call jabug.__buffers.info.open('[info pane]', {'opener': 'botright vnew'})
-    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-info
+
+    call jabug.__buffers.source.move()
+    call jabug.__publisher.publish('open_source_pane')
+    call jabug.__buffers.command.move()
+    call jabug.__publisher.publish('open_command_pane')
+    call jabug.__buffers.info.move()
+    call jabug.__publisher.publish('open_info_pane')
 
     call jabug.__buffers.command.move()
 
@@ -87,6 +112,14 @@ function! jabug#handle_command()
     for jabug in s:active_jabugs
         call jabug.handle_command()
     endfor
+endfunction
+
+function! jabug#subscribe(event, expr)
+    call s:publisher.subscribe(a:event, a:expr)
+endfunction
+
+function! jabug#unsubscribe(event, expr)
+    call s:publisher.unsubscribe(a:event, a:expr)
 endfunction
 
 function! s:jabug.on_idle()
