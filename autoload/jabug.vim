@@ -28,24 +28,31 @@ let s:BM= s:V.import('Vim.BufferManager')
 let s:Pub= s:V.import('Event.Publisher')
 unlet s:V
 
-let s:active_jabugs= []
 let s:publisher= s:Pub.new()
+let s:buffer_initializer= {}
 
 let s:jabug= {}
 
-let s:buffer_initializer= {}
-
 function! s:buffer_initializer.open_source_pane()
     setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-source
+    nnoremap <buffer><silent> i :<C-U>silent<Space>call<Space>t:jabug.start_input('i')<CR>
+    nnoremap <buffer><silent> I :<C-U>silent<Space>call<Space>t:jabug.start_input('I')<CR>
+    nnoremap <buffer><silent> a :<C-U>silent<Space>call<Space>t:jabug.start_input('a')<CR>
+    nnoremap <buffer><silent> A :<C-U>silent<Space>call<Space>t:jabug.start_input('A')<CR>
 endfunction
 
 function! s:buffer_initializer.open_command_pane()
     setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted filetype=jabug-command
-    nnoremap <buffer><silent> <CR> :<C-U>silent<Space>call<Space>jabug#handle_command()<CR>
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted filetype=jabug-command
+    nnoremap <buffer><silent> <CR> :<C-U>silent<Space>call<Space>t:jabug.handle_command()<CR>
 endfunction
 
 function! s:buffer_initializer.open_info_pane()
     setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-info
+    nnoremap <buffer><silent> i :<C-U>silent<Space>call<Space>t:jabug.start_input('i')<CR>
+    nnoremap <buffer><silent> I :<C-U>silent<Space>call<Space>t:jabug.start_input('I')<CR>
+    nnoremap <buffer><silent> a :<C-U>silent<Space>call<Space>t:jabug.start_input('a')<CR>
+    nnoremap <buffer><silent> A :<C-U>silent<Space>call<Space>t:jabug.start_input('A')<CR>
 endfunction
 
 call s:publisher.subscribe('open_source_pane',  s:buffer_initializer)
@@ -62,7 +69,7 @@ function! jabug#start(options, class, arguments)
     let jabug= deepcopy(s:jabug)
 
     let jabug.__process= s:PM.of(s:unique_id(), join(cmd, ' '))
-    let jabug.__endpatterns= ['\s*>\s*']
+    let jabug.__endpatterns= ['\s*>\s*', '\Cmain\[\d\+\]\s*']
     let jabug.__publisher= s:publisher
 
     if jabug.__process.is_new()
@@ -80,7 +87,7 @@ function! jabug#start(options, class, arguments)
     only
 
     call jabug.__buffers.command.open('[command pane]', {'opener': 'botright new'})
-    resize 5
+    resize 1
 
     call jabug.__buffers.info.open('[info pane]', {'opener': 'botright vnew'})
 
@@ -96,22 +103,16 @@ function! jabug#start(options, class, arguments)
     " initialize timer
     augroup jabug-timer
         autocmd!
-        autocmd CursorHold,CursorHoldI * call jabug#on_idle()
+        autocmd CursorHold,CursorHoldI * call s:on_idle()
     augroup END
 
-    let s:active_jabugs+= [jabug]
+    let t:jabug= jabug
 endfunction
 
-function! jabug#on_idle()
-    for jabug in s:active_jabugs
-        call jabug.on_idle()
-    endfor
-endfunction
-
-function! jabug#handle_command()
-    for jabug in s:active_jabugs
-        call jabug.handle_command()
-    endfor
+function! s:on_idle()
+    if has_key(t:, 'jabug')
+        call t:jabug.on_idle()
+    endif
 endfunction
 
 function! jabug#subscribe(event, expr)
@@ -133,6 +134,10 @@ function! s:jabug.on_idle()
         0put=bulk.err
         0put=bulk.out
         wincmd p
+    elseif bulk.fail
+        call self.__process.shutdown()
+        echomsg 'Bye!'
+        windo bw%
     endif
 endfunction
 
@@ -143,6 +148,17 @@ function! s:jabug.handle_command()
 
     call self.send(join(getline(1, '$'), ' '))
     %delete _
+endfunction
+
+function! s:jabug.start_input(k)
+    call self.__buffers.command.move()
+    if a:k ==# 'i' || a:k ==# 'I'
+        startinsert
+    elseif a:k ==# 'a' || a:k ==# 'A'
+        startinsert!
+    else
+        startinsert
+    endif
 endfunction
 
 function! s:jabug.send(command)
