@@ -26,6 +26,7 @@ let s:V= vital#of('jabug')
 let s:PM= s:V.import('ProcessManager')
 let s:BM= s:V.import('Vim.BufferManager')
 let s:Pub= s:V.import('Event.Publisher')
+let s:L= s:V.import('Data.List')
 unlet s:V
 
 let s:publisher= s:Pub.new()
@@ -101,9 +102,16 @@ function! jabug#start(options, class, arguments)
     call jabug.__buffers.command.move()
 
     " initialize timer
+    let s:save_updatetime= &updatetime
+    let &updatetime= 100
+
     augroup jabug-timer
         autocmd!
         autocmd CursorHold,CursorHoldI * call s:on_idle()
+        autocmd CursorHold * call feedkeys("g\<ESC>", 'n')
+        autocmd CursorHoldI * call feedkeys("a\<BS>", 'n')
+        autocmd TabEnter * call s:keep_updatetime('TabEnter')
+        autocmd TabLeave * call s:keep_updatetime('TabLeave')
     augroup END
 
     let t:jabug= jabug
@@ -172,6 +180,27 @@ function! s:unique_id()
     endif
     let s:id_sequence+= 1
     return s:id_sequence
+endfunction
+
+function! s:jabug_tabpagenrs()
+    let tabpagenrs= []
+    for tabpagenr in range(1, tabpagenr('$'))
+        if !empty(gettabvar(tabpagenr, 'jabug', {}))
+            let tabpagenrs+= [tabpagenr]
+        endif
+    endfor
+    return tabpagenrs
+endfunction
+
+function! s:keep_updatetime(event)
+    let in_jabug_tabpage= s:L.has(s:jabug_tabpagenrs(), tabpagenr())
+
+    if a:event ==# 'TabLeave' && in_jabug_tabpage
+        let &updatetime= s:save_updatetime
+    elseif a:event ==# 'TabEnter' && in_jabug_tabpage
+        let s:save_updatetime= &updatetime
+        let &updatetime= 100
+    endif
 endfunction
 
 let &cpo= s:save_cpo
