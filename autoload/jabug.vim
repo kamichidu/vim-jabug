@@ -24,41 +24,14 @@ set cpo&vim
 
 let s:V= vital#of('jabug')
 let s:PM= s:V.import('ProcessManager')
-let s:BM= s:V.import('Vim.BufferManager')
 let s:Pub= s:V.import('Event.Publisher')
 let s:L= s:V.import('Data.List')
+let s:WL= s:V.import('Window.Layout')
 unlet s:V
 
 let s:publisher= s:Pub.new()
-let s:buffer_initializer= {}
 
 let s:jabug= {}
-
-function! s:buffer_initializer.open_source_pane()
-    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-source
-    nnoremap <buffer><silent> i :<C-U>silent<Space>call<Space>t:jabug.start_input('i')<CR>
-    nnoremap <buffer><silent> I :<C-U>silent<Space>call<Space>t:jabug.start_input('I')<CR>
-    nnoremap <buffer><silent> a :<C-U>silent<Space>call<Space>t:jabug.start_input('a')<CR>
-    nnoremap <buffer><silent> A :<C-U>silent<Space>call<Space>t:jabug.start_input('A')<CR>
-endfunction
-
-function! s:buffer_initializer.open_command_pane()
-    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted filetype=jabug-command
-    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted filetype=jabug-command
-    nnoremap <buffer><silent> <CR> :<C-U>silent<Space>call<Space>t:jabug.handle_command()<CR>
-endfunction
-
-function! s:buffer_initializer.open_info_pane()
-    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-info
-    nnoremap <buffer><silent> i :<C-U>silent<Space>call<Space>t:jabug.start_input('i')<CR>
-    nnoremap <buffer><silent> I :<C-U>silent<Space>call<Space>t:jabug.start_input('I')<CR>
-    nnoremap <buffer><silent> a :<C-U>silent<Space>call<Space>t:jabug.start_input('a')<CR>
-    nnoremap <buffer><silent> A :<C-U>silent<Space>call<Space>t:jabug.start_input('A')<CR>
-endfunction
-
-call s:publisher.subscribe('open_source_pane',  s:buffer_initializer)
-call s:publisher.subscribe('open_command_pane', s:buffer_initializer)
-call s:publisher.subscribe('open_info_pane',    s:buffer_initializer)
 
 function! jabug#start(options, class, arguments)
     let cmd= ['jdb']
@@ -78,28 +51,24 @@ function! jabug#start(options, class, arguments)
     endif
 
     " initialize buffer
-    let jabug.__buffers= {
-    \   'source':  s:BM.new({'range': 'tabpage'}),
-    \   'command': s:BM.new({'range': 'tabpage'}),
-    \   'info':    s:BM.new({'range': 'tabpage'}),
-    \}
+    let jabug.__layout= s:WL.new()
 
-    call jabug.__buffers.source.open('[source pane]', {'opener': 'new'})
-    only
-
-    call jabug.__buffers.command.open('[command pane]', {'opener': 'botright new'})
-    resize 1
-
-    call jabug.__buffers.info.open('[info pane]', {'opener': 'botright vnew'})
-
-    call jabug.__buffers.source.move()
-    call jabug.__publisher.publish('open_source_pane')
-    call jabug.__buffers.command.move()
-    call jabug.__publisher.publish('open_command_pane')
-    call jabug.__buffers.info.move()
-    call jabug.__publisher.publish('open_info_pane')
-
-    call jabug.__buffers.command.move()
+    call jabug.__layout.apply(
+    \   [
+    \       {'id': 'source',  'bufname': '[source pane]',  'initializer': [jabug.initialize_source_pane, jabug]},
+    \       {'id': 'command', 'bufname': '[command pane]', 'initializer': [jabug.initialize_command_pane, jabug]},
+    \       {'id': 'info',    'bufname': '[info pane]',    'initializer': [jabug.initialize_info_pane, jabug]},
+    \   ],
+    \   {
+    \       'layout': 'border',
+    \       'west': {
+    \           'layout': 'border',
+    \           'north':  {'bufref': 'source',  'walias': 'source'},
+    \           'center': {'bufref': 'command', 'walias': 'command', 'height': 1},
+    \       },
+    \       'east': {'bufref': 'info', 'walias': 'info', 'width': 0.5},
+    \   }
+    \)
 
     " initialize timer
     let s:save_updatetime= &updatetime
@@ -137,7 +106,10 @@ function! s:jabug.on_idle()
     endif
 
     let bulk= self.__process.go_bulk()
-    if bulk.done && self.__buffers.info.move()
+    if bulk.done
+        let winnr= self.__layout.winnr('info')
+        execute winnr 'wincmd w'
+
         %delete _
         0put=bulk.err
         0put=bulk.out
@@ -150,16 +122,17 @@ function! s:jabug.on_idle()
 endfunction
 
 function! s:jabug.handle_command()
-    if !self.__buffers.command.is_managed(bufnr('%'))
-        return
-    endif
+    let winnr= self.__layout.winnr('command')
+    execute winnr 'wincmd w'
 
     call self.send(join(getline(1, '$'), ' '))
     %delete _
 endfunction
 
 function! s:jabug.start_input(k)
-    call self.__buffers.command.move()
+    let winnr= self.__layout.winnr('command')
+    execute winnr 'wincmd w'
+
     if a:k ==# 'i' || a:k ==# 'I'
         startinsert
     elseif a:k ==# 'a' || a:k ==# 'A'
@@ -172,6 +145,36 @@ endfunction
 function! s:jabug.send(command)
     call self.__process.reserve_writeln(a:command)
     call self.__process.reserve_read(self.__endpatterns)
+endfunction
+
+function! s:jabug.initialize_source_pane()
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-source
+
+    nnoremap <buffer><silent> i :<C-U>silent<Space>call<Space>t:jabug.start_input('i')<CR>
+    nnoremap <buffer><silent> I :<C-U>silent<Space>call<Space>t:jabug.start_input('I')<CR>
+    nnoremap <buffer><silent> a :<C-U>silent<Space>call<Space>t:jabug.start_input('a')<CR>
+    nnoremap <buffer><silent> A :<C-U>silent<Space>call<Space>t:jabug.start_input('A')<CR>
+
+    call self.__publisher.publish('open_source_pane')
+endfunction
+
+function! s:jabug.initialize_command_pane()
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted filetype=jabug-command
+
+    nnoremap <buffer><silent> <CR> :<C-U>silent<Space>call<Space>t:jabug.handle_command()<CR>
+
+    call self.__publisher.publish('open_command_pane')
+endfunction
+
+function! s:jabug.initialize_info_pane()
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-info
+
+    nnoremap <buffer><silent> i :<C-U>silent<Space>call<Space>t:jabug.start_input('i')<CR>
+    nnoremap <buffer><silent> I :<C-U>silent<Space>call<Space>t:jabug.start_input('I')<CR>
+    nnoremap <buffer><silent> a :<C-U>silent<Space>call<Space>t:jabug.start_input('a')<CR>
+    nnoremap <buffer><silent> A :<C-U>silent<Space>call<Space>t:jabug.start_input('A')<CR>
+
+    call self.__publisher.publish('open_info_pane')
 endfunction
 
 function! s:unique_id()
