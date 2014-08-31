@@ -58,9 +58,11 @@ function! jabug#start(options, class, arguments)
     \       {'id': 'source',  'bufname': '[source pane]',  'initializer': [jabug.initialize_source_pane, jabug]},
     \       {'id': 'command', 'bufname': '[command pane]', 'initializer': [jabug.initialize_command_pane, jabug]},
     \       {'id': 'info',    'bufname': '[info pane]',    'initializer': [jabug.initialize_info_pane, jabug]},
+    \       {'id': 'threads', 'bufname': '[thread pane]',  'initializer': [jabug.initialize_thread_pane, jabug]},
     \   ],
     \   {
     \       'layout': 'border',
+    \       'north': {'bufref': 'threads', 'walias': 'threads', 'height': 10},
     \       'west': {
     \           'layout': 'border',
     \           'north':  {'bufref': 'source',  'walias': 'source'},
@@ -72,7 +74,7 @@ function! jabug#start(options, class, arguments)
 
     " initialize timer
     let s:save_updatetime= &updatetime
-    let &updatetime= 100
+    let &updatetime= 500
 
     augroup jabug-timer
         autocmd!
@@ -106,19 +108,51 @@ function! s:jabug.on_idle()
     endif
 
     let bulk= self.__process.go_bulk()
-    if bulk.done
-        let winnr= self.__layout.winnr('info')
-        execute winnr 'wincmd w'
 
-        %delete _
-        0put=bulk.err
-        0put=bulk.out
-        wincmd p
-    elseif bulk.fail
+    if bulk.fail
         call self.__process.shutdown()
         echomsg 'Bye!'
-        windo bw%
+        windo bw
     endif
+
+    call self.__process.reserve_writeln('list')
+    call self.__process.reserve_read(self.__endpatterns, [self.show_source, self])
+
+    call self.__process.reserve_writeln('threads')
+    call self.__process.reserve_read(self.__endpatterns, [self.show_threads, self])
+endfunction
+
+function! s:jabug.show_info(result)
+    let prevnr= winnr()
+    let winnr= self.__layout.winnr('info')
+    execute winnr 'wincmd w'
+
+    %delete _
+    0put=a:result.err
+    0put=a:result.out
+    execute prevnr 'wincmd w'
+endfunction
+
+function! s:jabug.show_source(result)
+    let prevnr= winnr()
+    let winnr= self.__layout.winnr('source')
+    execute winnr 'wincmd w'
+
+    %delete _
+    0put=a:result.err
+    0put=a:result.out
+    execute prevnr 'wincmd w'
+endfunction
+
+function! s:jabug.show_threads(result)
+    let prevnr= winnr()
+    let winnr= self.__layout.winnr('threads')
+    execute winnr 'wincmd w'
+
+    %delete _
+    0put=a:result.err
+    0put=a:result.out
+    execute prevnr 'wincmd w'
 endfunction
 
 function! s:jabug.handle_command()
@@ -144,7 +178,7 @@ endfunction
 
 function! s:jabug.send(command)
     call self.__process.reserve_writeln(a:command)
-    call self.__process.reserve_read(self.__endpatterns)
+    call self.__process.reserve_read(self.__endpatterns, [self.show_info, self])
 endfunction
 
 function! s:jabug.initialize_source_pane()
@@ -177,6 +211,17 @@ function! s:jabug.initialize_info_pane()
     call self.__publisher.publish('open_info_pane')
 endfunction
 
+function! s:jabug.initialize_thread_pane()
+    setlocal bufhidden=hide buftype=nofile noswapfile nobuflisted readonly filetype=jabug-info
+
+    nnoremap <buffer><silent> i :<C-U>silent<Space>call<Space>t:jabug.start_input('i')<CR>
+    nnoremap <buffer><silent> I :<C-U>silent<Space>call<Space>t:jabug.start_input('I')<CR>
+    nnoremap <buffer><silent> a :<C-U>silent<Space>call<Space>t:jabug.start_input('a')<CR>
+    nnoremap <buffer><silent> A :<C-U>silent<Space>call<Space>t:jabug.start_input('A')<CR>
+
+    call self.__publisher.publish('open_thread_pane')
+endfunction
+
 function! s:unique_id()
     if !exists('s:id_sequence')
         let s:id_sequence= 0
@@ -202,7 +247,7 @@ function! s:keep_updatetime(event)
         let &updatetime= s:save_updatetime
     elseif a:event ==# 'TabEnter' && in_jabug_tabpage
         let s:save_updatetime= &updatetime
-        let &updatetime= 100
+        let &updatetime= 500
     endif
 endfunction
 

@@ -172,26 +172,29 @@ function! s:reserve_wait(endpatterns) dict
   return self
 endfunction
 
-function! s:reserve_writeln(line) dict
-  call s:_reserve(self, 'writeln', a:line)
+function! s:reserve_writeln(line, ...) dict
+  let Callback = get(a:000, 0, function('s:_nop'))
+  call s:_reserve(self, 'writeln', a:line, Callback)
   return self
 endfunction
 
-function! s:reserve_read(endpatterns) dict
-  call s:_reserve(self, 'read', a:endpatterns)
+function! s:reserve_read(endpatterns, ...) dict
+  let Callback = get(a:000, 0, function('s:_nop'))
+  call s:_reserve(self, 'read', a:endpatterns, Callback)
   return self
 endfunction
 
-function! s:_reserve(self, key, value)
+function! s:_reserve(self, key, value, ...)
+  let Callback= get(a:000, 0, function('s:_nop'))
   if a:self['*mailbox*'] ==# ['*new*']
-    let a:self['*mailbox*'] = [[a:key, a:value]]
+    let a:self['*mailbox*'] = [[a:key, a:value, Callback]]
   else
-    call add(a:self['*mailbox*'], [a:key, a:value])
+    call add(a:self['*mailbox*'], [a:key, a:value, Callback])
   endif
 endfunction
 
 function! s:_trigger(self)
-  let [msgkey, msgvalue] = a:self['*mailbox*'][0]
+  let [msgkey, msgvalue, Callback] = a:self['*mailbox*'][0]
   if msgkey ==# 'writeln'
     call s:writeln(a:self.label, msgvalue)
     call remove(a:self['*mailbox*'], 0)
@@ -208,7 +211,13 @@ function! s:_trigger(self)
       call remove(a:self['*mailbox*'], 0)
       let out = a:self['*buffer*'][0] . out
       let err = a:self['*buffer*'][1] . err
-      return {'done': 1, 'fail': 0, 'out': out, 'err': err}
+      let result = {'done': 1, 'fail': 0, 'out': out, 'err': err}
+      if type(Callback) == type(function('tr'))
+        call call(Callback, [result])
+      elseif type(Callback) == type([])
+        call call(Callback[0], [result], Callback[1])
+      endif
+      return result
     else
       let out .= a:self['*buffer*'][0]
       let err .= a:self['*buffer*'][1]
@@ -230,7 +239,7 @@ function! s:_go(bulk_or_part, self)
   if self.is_idle()
     throw 'Vital.ProcessManager: go has nothing to do'
   endif
-  let [msgkey, msgvalue] = self['*mailbox*'][0]
+  let [msgkey, msgvalue, Callback] = self['*mailbox*'][0]
 
   let state = s:state(self.label)
   " echomsg string(['state', state, 'msg', msgkey, msgvalue, 'mailbox', self['*mailbox*']])
@@ -273,12 +282,20 @@ function! s:_go(bulk_or_part, self)
       let err = self['*buffer*'][1]
       let self['*buffer*'] = ['', '']
       call remove(self['*mailbox*'], 0)
+      if type(Callback) == type(function('tr'))
+        call call(Callback, [result])
+      elseif type(Callback) == type([])
+        call call(Callback[0], [result], Callback[1])
+      endif
       let result = {'done': 1, 'fail': 0, 'out': out, 'err': err}
       return result
     endif
   else
     throw printf('Vital.ProcessManager: Must not happen: %s', state)
   endif
+endfunction
+
+function! s:_nop(result)
 endfunction
 
 let &cpo = s:save_cpo
