@@ -103,17 +103,17 @@ function! jabug#unsubscribe(event, expr)
 endfunction
 
 function! s:jabug.on_idle()
-    if self.__process.is_idle()
-        return
-    endif
+    while !self.__process.is_idle()
+        let bulk= self.__process.go_bulk()
 
-    let bulk= self.__process.go_bulk()
-
-    if bulk.fail
-        call self.__process.shutdown()
-        echomsg 'Bye!'
-        windo bw
-    endif
+        if bulk.fail
+            call self.__process.shutdown()
+            echomsg 'Bye!'
+            windo close
+        elseif !bulk.done
+            break
+        endif
+    endwhile
 
     call self.__process.reserve_writeln('list')
     call self.__process.reserve_read(self.__endpatterns, [self.show_source, self])
